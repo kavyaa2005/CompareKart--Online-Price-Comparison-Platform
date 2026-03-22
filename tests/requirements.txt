@@ -1,0 +1,23 @@
+"""
+Test requirements for integration test suite
+Add these to your main requirements.txt or install separately
+"""
+
+# Testing Framework
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0  # Coverage reports
+
+# API Testing
+httpx>=0.24.0  # For async HTTP client
+requests>=2.31.0  # For sync HTTP client
+
+# Test Data Generation
+faker>=15.0.0  # Generate fake test data
+
+# Assertions
+assertpy>=1.1
+
+# Optional: For better test reporting
+pytest-html>=3.1.0  # HTML reports
+pytest-json-report>=1.5.0  # JSON reports
