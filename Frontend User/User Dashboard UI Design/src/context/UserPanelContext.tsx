@@ -82,6 +82,7 @@ const API_BASE_URL = (import.meta as any)?.env?.VITE_API_URL || 'http://localhos
 const USE_MOCK = String((import.meta as any)?.env?.VITE_USE_MOCK).toLowerCase() === 'true';
 const TOKEN_KEY = 'user_panel_token';
 const USER_PANEL_REFRESH_MS_DEFAULT = 30000;
+const USER_PANEL_APPROVAL_SYNC_MS = 3000;
 
 const MOCK_USER: AuthUser = {
   id: 0,
@@ -115,6 +116,19 @@ const platformIconMap: Record<string, string> = {
   'Best Buy': '🏪',
   Target: '🎯',
   eBay: '📦',
+};
+
+const APPROVED_PRODUCT_IMAGE_MAP: Record<string, string> = {
+  'bath towel premium': '/images/bath-towel-premium.jpg',
+  'bed runner decorative': '/images/bed-runner-decorative.jpg',
+  'bedsheet double king': '/images/bedsheet-double-king.jpg',
+  'bluetooth speaker': '/images/bluetooth-speaker.jpg',
+  'bluetooth speaker xyz': '/images/bluetooth-speaker-xyz.jpg',
+  'body lotion pump': '/images/body-lotion-pump.jpg',
+  'bookmark set': '/images/bookmark-set.jpg',
+  'calendar 2026': '/images/calendar-2026.jpg',
+  'card reader usb': '/images/card-reader-usb.jpg',
+  'casual sneakers white': '/images/casual-sneakers-white.jpg',
 };
 
 const UserPanelContext = createContext<UserPanelContextValue | undefined>(undefined);
@@ -201,6 +215,12 @@ function toConfidencePercent(value: number): number {
 }
 
 function buildImageUrl(productName: string): string {
+  const normalizedName = productName.trim().toLowerCase().replace(/\s+/g, ' ');
+  const localImage = APPROVED_PRODUCT_IMAGE_MAP[normalizedName];
+  if (localImage) {
+    return localImage;
+  }
+
   const keyword = encodeURIComponent(productName.split(' ').slice(0, 3).join(' '));
   return `https://source.unsplash.com/featured/600x400/?${keyword},shopping`;
 }
@@ -218,6 +238,7 @@ export function UserPanelProvider({ children }: { children: React.ReactNode }) {
   const [alertsEnabled, setAlertsEnabled] = useState(true);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState(USER_PANEL_REFRESH_MS_DEFAULT);
   const refreshInFlightRef = useRef(false);
+  const approvedProductsSignatureRef = useRef('');
 
 async function loginOrCreateDemoUser(): Promise<{ token: string; user: AuthUser }> {
   const demoCredentials = [
@@ -409,6 +430,7 @@ async function loginOrCreateDemoUser(): Promise<{ token: string; user: AuthUser 
       const activeToken = await initializeAuth();
       await syncPanelState(activeToken);
       const listData = await apiRequest<{ products: string[] }>('/user/products', activeToken);
+      approvedProductsSignatureRef.current = [...(listData.products || [])].sort().join('|');
       const productNames = listData.products.slice(0, 20);
 
       const hydrated = await Promise.all(
@@ -530,6 +552,24 @@ async function loginOrCreateDemoUser(): Promise<{ token: string; user: AuthUser 
     await refreshProductsInternal({ silent: false });
   }, [refreshProductsInternal]);
 
+  const syncApprovedProductsIfChanged = useCallback(async () => {
+    if (USE_MOCK || !token || refreshInFlightRef.current) {
+      return;
+    }
+
+    try {
+      const listData = await apiRequest<{ products: string[] }>('/user/products', token);
+      const nextSignature = [...(listData.products || [])].sort().join('|');
+
+      if (nextSignature !== approvedProductsSignatureRef.current) {
+        approvedProductsSignatureRef.current = nextSignature;
+        await refreshProductsInternal({ silent: true });
+      }
+    } catch {
+      // Keep the last successful UI state; regular refresh loop will retry.
+    }
+  }, [token, refreshProductsInternal]);
+
   useEffect(() => {
     void refreshProducts();
   }, [refreshProducts]);
@@ -564,6 +604,37 @@ async function loginOrCreateDemoUser(): Promise<{ token: string; user: AuthUser 
       }
     };
   }, [refreshIntervalMs, refreshProductsInternal]);
+
+  useEffect(() => {
+    const runApprovalSync = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return;
+      }
+      void syncApprovedProductsIfChanged();
+    };
+
+    const intervalId = window.setInterval(runApprovalSync, USER_PANEL_APPROVAL_SYNC_MS);
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        runApprovalSync();
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisible);
+    }
+
+    return () => {
+      window.clearInterval(intervalId);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisible);
+      }
+    };
+  }, [syncApprovedProductsIfChanged]);
 
   const alerts = useMemo(() => {
     const productById = new Map(products.map((item) => [item.id, item]));

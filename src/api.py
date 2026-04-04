@@ -1836,7 +1836,8 @@ def matching_action(pair_id: int, action: str, user: dict = Depends(require_admi
     if action not in ("approved", "rejected", "flagged"):
         raise HTTPException(status_code=400, detail="Action must be approved, rejected, or flagged")
 
-    pair_lookup = {pair["id"]: pair for pair in _build_matching_pairs(include_approved=True)}
+    # Use the same pair set shown on the admin queue so pair IDs stay consistent.
+    pair_lookup = {pair["id"]: pair for pair in _build_matching_pairs(include_approved=False)}
     pair = pair_lookup.get(pair_id)
     if pair is None:
         raise HTTPException(status_code=404, detail=f"Pair {pair_id} not found")
@@ -1864,7 +1865,13 @@ def matching_action(pair_id: int, action: str, user: dict = Depends(require_admi
         if product_name in approved_products:
             del approved_products[product_name]
 
-    return {"pair_id": pair_id, "status": action, "message": f"Pair {pair_id} {action}"}
+    return {
+        "pair_id": pair_id,
+        "status": action,
+        "product_name": product_name,
+        "approved_count": len(approved_products),
+        "message": f"Pair {pair_id} {action}",
+    }
 
 
 # ============================================================================
